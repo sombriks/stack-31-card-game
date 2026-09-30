@@ -1,6 +1,13 @@
 // game.zig
 const std = @import("std");
 
+const GameError = error {
+    DeckEmpty,
+    HandEmpty,
+    HandFull,
+    NoCardAt
+};
+
 const Suit = enum {
     DIAMONDS, // diamonds (♦)
     HEARTS, // hearts (♥)
@@ -65,15 +72,15 @@ const Hand = struct {
     cards: [6]Card = undefined,
     count: usize = 0,
 
-    pub fn draw(self: *Hand, deck: *Deck) void {
+    pub fn draw(self: *Hand, deck: *Deck) GameError!void {
         if (self.count == self.cards.len) {
             std.log.debug("Hand is full", .{});
-            return;
+            return GameError.HandFull;
         }
 
         if(deck.count == 0) {
             std.log.debug("Deck is empty", .{});
-            return;
+            return GameError.DeckEmpty;
         }
 
         self.cards[self.count] = deck.cards[deck.count - 1];
@@ -81,12 +88,25 @@ const Hand = struct {
         deck.count -= 1;
     }
 
-    pub fn place() Card {
+    pub fn place(self: *Hand, index: usize) GameError!Card {
+        if (self.count == 0) {
+            std.log.debug("Hand is empty", .{});
+            return GameError.HandEmpty;
+        }
 
-    }
+        if (self.count <= index) {
+            std.log.debug("No card at position {}", .{index});
+            return GameError.NoCardAt;
+        }
 
-    pub fn discard() Card {
+        const c = self.cards[index];
+        var next = index + 1;
+        while (next < self.count) : (next += 1) {
+            self.cards[next-1] = self.cards[next];
+        }
 
+        self.count -= 1;
+        return c;
     }
 };
 
@@ -94,7 +114,7 @@ const Player = struct {};
 
 const Game = struct {};
 
-pub fn main(init: std.process.Init) void {
+pub fn main(init: std.process.Init) !void {
     var buf: [8]u8 = undefined;
     init.io.random(&buf);
 
@@ -104,8 +124,10 @@ pub fn main(init: std.process.Init) void {
     var deck: Deck = Deck.init();
     var hand: Hand = .{};
 
-    hand.draw(&deck);
+    _ = try hand.draw(&deck);
     deck.shuffle(random);
-    hand.draw(&deck);
-    std.log.debug("hello world: {}", .{hand.cards[1]});
+    _ = try hand.draw(&deck);
+    const card1 = try hand.place(0);
+    const card2 = try hand.place(0);
+    std.log.debug("{} \n\t {}", .{card1, card2});
 }
