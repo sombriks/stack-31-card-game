@@ -1,3 +1,5 @@
 # Stack 31
 
-It's a card game
+It's a card game.
+
+
