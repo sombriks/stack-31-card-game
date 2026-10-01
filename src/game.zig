@@ -1,11 +1,12 @@
 // game.zig
 const std = @import("std");
 
-const GameError = error {
-    DeckEmpty,
-    HandEmpty,
-    HandFull,
-    NoCardAt
+const GameError = error{
+    DeckEmpty, // nothing left on deck
+    HandEmpty, // nothing left on hand
+    HandFull, // unable to draw
+    NoCardAt, // no such card at hand position
+    DiscardPileFull, // no space left on discard pile
 };
 
 const Suit = enum {
@@ -32,13 +33,12 @@ const Rank = enum {
 };
 
 const Card = struct {
-
     suit: Suit,
     value: Rank,
     faceUp: bool = false,
 
     pub fn init(suit: Suit, value: Rank) Card {
-        return .{.suit = suit, .value = value};
+        return .{ .suit = suit, .value = value };
     }
 };
 
@@ -54,6 +54,7 @@ const Deck = struct {
                 d.count += 1;
             }
         }
+
         return d;
     }
 
@@ -73,13 +74,13 @@ const Deck = struct {
     }
 
     pub fn draw(self: *Deck) GameError!Card {
-        if(self.empty()) {
+        if (self.empty()) {
             std.log.debug("deck is empty", .{});
-            return GameError.DeckEmpty;
+            return .DeckEmpty;
         }
 
-        const c = self.cards[self.count-1];
-        self.cards[self.count-1] = undefined;
+        const c = self.cards[self.count - 1];
+        self.cards[self.count - 1] = undefined;
         self.count -= 1;
         return c;
     }
@@ -100,12 +101,12 @@ const Hand = struct {
     pub fn draw(self: *Hand, deck: *Deck) GameError!void {
         if (self.full()) {
             std.log.debug("Hand is full", .{});
-            return GameError.HandFull;
+            return .HandFull;
         }
 
-        if(deck.empty()) {
+        if (deck.empty()) {
             std.log.debug("Deck is empty", .{});
-            return GameError.DeckEmpty;
+            return .DeckEmpty;
         }
 
         self.cards[self.count] = try deck.draw();
@@ -115,18 +116,18 @@ const Hand = struct {
     pub fn place(self: *Hand, index: usize) GameError!Card {
         if (self.count == 0) {
             std.log.debug("Hand is empty", .{});
-            return GameError.HandEmpty;
+            return .HandEmpty;
         }
 
         if (self.count <= index) {
             std.log.debug("No card at position {}", .{index});
-            return GameError.NoCardAt;
+            return .NoCardAt;
         }
 
         const c = self.cards[index];
         var next = index + 1;
         while (next < self.count) : (next += 1) {
-            self.cards[next-1] = self.cards[next];
+            self.cards[next - 1] = self.cards[next];
         }
 
         self.count -= 1;
@@ -136,28 +137,63 @@ const Hand = struct {
 
 const Player = struct {
     name: []const u8,
-    hand: Hand,
+    hand: Hand = .{},
+};
+
+const DiscardPile = struct {
+    cards: [52]Card = undefined,
+    count: usize = 0,
+
+    pub fn full(self: *DiscardPile) bool {
+        return self.cards.len > self.count;
+    }
+
+    pub fn place(self: *DiscardPile, card: Card, faceUp: bool) GameError!void {
+        if (self.full()) {
+            std.log.debug("Discard pile if full", .{});
+            return .DiscardPileFull;
+        }
+        card.faceUp = faceUp;
+        self.cards[self.count] = card;
+        self.count += 1;
+    }
+};
+
+const SuitPile = struct {
+    cards: [13]Card = undefined,
+    count: usize = 0,
+    points: u8 = 0,
+    lastPlayer: ?*Player = null,
+    suit: Suit,
 };
 
 const Game = struct {
-    deck: Deck,
+    discardPile: DiscardPile = .{},
+    deck: Deck = .init(),
+    suitPiles: []SuitPile,
     players: []Player,
 };
 
 pub fn main(init: std.process.Init) !void {
     var buf: [8]u8 = undefined;
     init.io.random(&buf);
-
     const seed = std.mem.readInt(u64, &buf, .big);
     var prng = std.Random.DefaultPrng.init(seed);
     const random = prng.random();
-    var deck: Deck = Deck.init();
-    var hand: Hand = .{};
 
-    _ = try hand.draw(&deck);
-    deck.shuffle(random);
-    _ = try hand.draw(&deck);
-    const card1 = try hand.place(0);
-    const card2 = try hand.place(0);
-    std.log.debug("{} \n\t {}", .{card1, card2});
+    var players = [_]Player{
+        .{ .name = "Alice" },
+        .{ .name = "Bob" },
+        .{ .name = "Charlene" },
+    };
+
+    var suitPiles = [_]SuitPile{
+        .{ .suit = .DIAMONDS },
+        .{ .suit = .HEARTS },
+        .{ .suit = .CLUBS },
+        .{ .suit = .SPADES },
+    };
+
+    var game = Game{ .players = &players, .suitPiles = &suitPiles };
+    game.deck.shuffle(random);
 }
