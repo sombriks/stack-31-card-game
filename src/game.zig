@@ -7,6 +7,8 @@ const GameError = error{
     HandFull, // unable to draw
     NoCardAt, // no such card at hand position
     DiscardPileFull, // no space left on discard pile
+    WrongSuit, // card and deck suit doesn't match
+    InvalidMove, // this card can not be placed on this pile
 };
 
 const Suit = enum {
@@ -39,6 +41,15 @@ const Card = struct {
 
     pub fn init(suit: Suit, value: Rank) Card {
         return .{ .suit = suit, .value = value };
+    }
+
+    pub fn effect(self: *Card, score: u8) u8 {
+        return switch (self.value) {
+            .ACE....TEN => |rank| score + @intFromEnum(rank) + 1,
+            .JACK => score - 1,
+            .QUEEN => 0,
+            .KING => 31,
+        };
     }
 };
 
@@ -113,8 +124,8 @@ const Hand = struct {
         self.count += 1;
     }
 
-    pub fn place(self: *Hand, index: usize) GameError!Card {
-        if (self.count == 0) {
+    pub fn peek(self: *Hand, index: usize) GameError!Card {
+        if (self.empty()) {
             std.log.debug("Hand is empty", .{});
             return .HandEmpty;
         }
@@ -123,8 +134,11 @@ const Hand = struct {
             std.log.debug("No card at position {}", .{index});
             return .NoCardAt;
         }
+        return self.cards[index];
+    }
 
-        const c = self.cards[index];
+    pub fn place(self: *Hand, index: usize) GameError!Card {
+        const c = try self.peek(index);
         var next = index + 1;
         while (next < self.count) : (next += 1) {
             self.cards[next - 1] = self.cards[next];
@@ -150,7 +164,7 @@ const DiscardPile = struct {
 
     pub fn place(self: *DiscardPile, card: Card, faceUp: bool) GameError!void {
         if (self.full()) {
-            std.log.debug("Discard pile if full", .{});
+            std.log.debug("Discard pile is full", .{});
             return .DiscardPileFull;
         }
         card.faceUp = faceUp;
@@ -162,24 +176,66 @@ const DiscardPile = struct {
 const SuitPile = struct {
     cards: [13]Card = undefined,
     count: usize = 0,
-    points: u8 = 0,
+    score: u8 = 0,
     lastPlayer: ?*Player = null,
     suit: Suit,
+
+    pub fn place(self: *SuitPile, player: ?*Player, cardAt: usize) GameError!void {
+        if (player) |p| {
+            var card = try p.hand.peek(cardAt);
+            if (self.suit != card.suit) {
+                std.log.debug("Suit mismatch", .{});
+                return GameError.WrongSuit;
+            }
+
+            const score = card.effect(self.score);
+            if((score < 0) or (score > 31)) {
+                return GameError.InvalidMove;
+            }
+            card = try p.hand.place(cardAt);
+            card.faceUp = true;
+            self.cards[self.count] = card;
+            self.count += 1;
+            self.score = score;
+            self.lastPlayer = p;
+        }
+    }
 };
 
 const Game = struct {
     discardPile: DiscardPile = .{},
     deck: Deck = .init(),
-    suitPiles: []SuitPile,
+    suitPiles: [4]SuitPile = .{
+        .{ .suit = .DIAMONDS },
+        .{ .suit = .HEARTS },
+        .{ .suit = .CLUBS },
+        .{ .suit = .SPADES },
+    },
+    lastPlayer: u8 = 0,
+    lastRound: u8 = 0,
     players: []Player,
+
+    pub fn status(_: *Game) void {}
+    pub fn finished(_: *Game) bool {
+        // game ends if:
+        // - players gave up or there is no remaining movesz
+        return false;
+    }
+    pub fn nextTurn(_: *Game) void {}
 };
 
-pub fn main(init: std.process.Init) !void {
+pub fn mkRandom(io: std.Io) std.Random {
     var buf: [8]u8 = undefined;
-    init.io.random(&buf);
+    io.random(&buf);
     const seed = std.mem.readInt(u64, &buf, .big);
     var prng = std.Random.DefaultPrng.init(seed);
-    const random = prng.random();
+    return prng.random();
+}
+
+pub fn main(_: std.process.Init) !void {}
+
+test "smple 1" {
+    const random = mkRandom(std.testing.io);
 
     var players = [_]Player{
         .{ .name = "Alice" },
@@ -187,13 +243,13 @@ pub fn main(init: std.process.Init) !void {
         .{ .name = "Charlene" },
     };
 
-    var suitPiles = [_]SuitPile{
-        .{ .suit = .DIAMONDS },
-        .{ .suit = .HEARTS },
-        .{ .suit = .CLUBS },
-        .{ .suit = .SPADES },
-    };
-
-    var game = Game{ .players = &players, .suitPiles = &suitPiles };
+    var game: Game = .{ .players = &players };
     game.deck.shuffle(random);
+    game.status();
+    _ = game.finished();
+    game.nextTurn();
+    game.nextTurn();
+    game.nextTurn();
+    game.status();
+    _ = game.finished();
 }
