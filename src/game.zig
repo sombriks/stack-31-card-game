@@ -45,7 +45,16 @@ const Card = struct {
 
     pub fn effect(self: *Card, score: u8) u8 {
         return switch (self.value) {
-            .ACE....TEN => |rank| score + @intFromEnum(rank) + 1,
+            .ACE => score + 1,
+            .TWO => score + 2,
+            .THREE => score + 3,
+            .FOUR => score + 4,
+            .FIVE => score + 5,
+            .SIX => score + 6,
+            .SEVEN => score + 7,
+            .EIGHT => score + 8,
+            .NINE => score + 9,
+            .TEN => score + 10,
             .JACK => score - 1,
             .QUEEN => 0,
             .KING => 31,
@@ -169,6 +178,34 @@ const DiscardPile = struct {
     }
 };
 
+const Player = struct {
+    name: []const u8,
+    hand: Hand = .{},
+    quit: bool = false,
+    handler: ?*const fn (self: *Player, game: *Game) GameError!bool = null,
+
+    pub fn effect(self: *Player, game: *Game) void {
+        if (self.quit) {
+            return;
+        }
+        var handled = false;
+        var maxErrors: u8 = 3;
+        while (!handled) {
+            if (self.handler) |h| {
+                handled = h(self, game) catch false;
+                if (!handled) {
+                    maxErrors -= 1;
+                    handled = maxErrors > 0;
+                }
+            } else {
+                // no handler, this player just quit
+                self.quit = true;
+                handled = true;
+            }
+        }
+    }
+};
+
 const SuitPile = struct {
     cards: [13]Card = undefined,
     count: usize = 0,
@@ -195,15 +232,6 @@ const SuitPile = struct {
             self.score = score;
             self.lastPlayer = p;
         }
-    }
-};
-
-const Player = struct {
-    name: []const u8,
-    hand: Hand = .{},
-
-    pub fn effect(_: *Player, _: *Game) void {
-        // TODO get player input or some test heuristics
     }
 };
 
@@ -269,6 +297,7 @@ const Game = struct {
     }
 };
 
+/// helper for the random thing
 pub fn mkRandom(io: std.Io) std.Random {
     var buf: [8]u8 = undefined;
     io.random(&buf);
@@ -279,7 +308,19 @@ pub fn mkRandom(io: std.Io) std.Random {
 
 pub fn main(_: std.process.Init) !void {}
 
-test "smple 1" {
+test "check card effects" {
+    var card = Card{ .suit = .HEARTS, .value = .ACE };
+    var v = card.effect(0);
+    try std.testing.expectEqual(1, v);
+    card.value = .TEN;
+    v = card.effect(5);
+    try std.testing.expectEqual(15, v);
+    card.value = .JACK;
+    v = card.effect(31);
+    try std.testing.expectEqual(30, v);
+}
+
+test "should play some rounds" {
     const random = mkRandom(std.testing.io);
 
     var players = [_]Player{
@@ -298,7 +339,11 @@ test "smple 1" {
     std.debug.print("Cards remaining: {}\n", .{s.deck});
     std.debug.print("Cards discarded: {}\n", .{s.discarded});
     for (s.piles) |p| {
-        std.debug.print("Pile {any}, Score {any}, Player {s}\n", .{ p.suit, p.score, p.player});
+        std.debug.print("Pile {any}, Score {any}, Player {s}\n", .{ p.suit, p.score, p.player });
     }
-    try std.testing.expectEqual(game.finished(), false);
+    for (game.players) |p| {
+        std.debug.print("Player {s}, quit {}\n", .{ p.name, p.quit });
+    }
+    try std.testing.expectEqual(false, game.finished());
+    try std.testing.expectEqual(3, game.lastRound);
 }

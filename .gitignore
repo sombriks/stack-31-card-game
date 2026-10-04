@@ -1,2 +1,6 @@
 docs
 game
+.zbscanhelper.zig
+.zig-cache
+.idea
+*.iml
