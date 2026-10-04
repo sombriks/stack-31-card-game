@@ -4,7 +4,7 @@ It's a card game. [See the rules](https://sombriks.com.br/blog/0093-stack-31-gam
 
 ## How to play
 
-I am work on that
+I am working on that
 
 ## Noteworthy
 

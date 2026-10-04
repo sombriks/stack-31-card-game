@@ -207,6 +207,19 @@ const Player = struct {
     }
 };
 
+const PileStatus = struct {
+    suit: Suit,
+    score: u8 = 0,
+    player: []const u8,
+};
+
+const GameStatus = struct {
+    rounds: u8,
+    deck: usize,
+    discarded: usize,
+    piles: [4]PileStatus,
+};
+
 const Game = struct {
     discardPile: DiscardPile = .{},
     deck: Deck = .init(),
@@ -219,11 +232,25 @@ const Game = struct {
     lastRound: u8 = 0,
     players: []Player,
 
-    pub fn status(_: *Game) void {
-        // deck
-        // discard
-        // suit piles scores
-        // players still in game
+    pub fn status(self: *Game) GameStatus {
+        var piles: [4]PileStatus = undefined;
+        var i: usize = 0;
+        while (i < piles.len) : (i += 1) {
+            piles[i].suit = self.suitPiles[i].suit;
+            piles[i].score = self.suitPiles[i].score;
+            if (self.suitPiles[i].lastPlayer) |p| {
+                piles[i].player = p.name;
+            } else {
+                piles[i].player = "-";
+            }
+        }
+
+        return .{
+            .piles = piles,
+            .deck = self.deck.count,
+            .rounds = self.lastRound,
+            .discarded = self.discardPile.count,
+        };
     }
 
     pub fn finished(self: *Game) bool {
@@ -263,11 +290,15 @@ test "smple 1" {
 
     var game: Game = .{ .players = &players };
     game.deck.shuffle(random);
-    game.status();
-    _ = game.finished();
     game.nextTurn();
     game.nextTurn();
     game.nextTurn();
-    game.status();
-    _ = game.finished();
+    const s = game.status();
+    std.debug.print("Round: {}\n", .{s.rounds});
+    std.debug.print("Cards remaining: {}\n", .{s.deck});
+    std.debug.print("Cards discarded: {}\n", .{s.discarded});
+    for (s.piles) |p| {
+        std.debug.print("Pile {any}, Score {any}, Player {s}\n", .{ p.suit, p.score, p.player});
+    }
+    try std.testing.expectEqual(game.finished(), false);
 }
