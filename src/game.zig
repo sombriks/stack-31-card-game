@@ -137,6 +137,7 @@ const Hand = struct {
         return self.cards[index];
     }
 
+    // XXX find a better name
     pub fn place(self: *Hand, index: usize) GameError!Card {
         const c = try self.peek(index);
         var next = index + 1;
@@ -147,11 +148,6 @@ const Hand = struct {
         self.count -= 1;
         return c;
     }
-};
-
-const Player = struct {
-    name: []const u8,
-    hand: Hand = .{},
 };
 
 const DiscardPile = struct {
@@ -189,7 +185,7 @@ const SuitPile = struct {
             }
 
             const score = card.effect(self.score);
-            if((score < 0) or (score > 31)) {
+            if ((score < 0) or (score > 31)) {
                 return GameError.InvalidMove;
             }
             card = try p.hand.place(cardAt);
@@ -202,6 +198,15 @@ const SuitPile = struct {
     }
 };
 
+const Player = struct {
+    name: []const u8,
+    hand: Hand = .{},
+
+    pub fn effect(_: *Player, _: *Game) void {
+        // TODO get player input or some test heuristics
+    }
+};
+
 const Game = struct {
     discardPile: DiscardPile = .{},
     deck: Deck = .init(),
@@ -211,17 +216,30 @@ const Game = struct {
         .{ .suit = .CLUBS },
         .{ .suit = .SPADES },
     },
-    lastPlayer: u8 = 0,
     lastRound: u8 = 0,
     players: []Player,
 
-    pub fn status(_: *Game) void {}
-    pub fn finished(_: *Game) bool {
-        // game ends if:
-        // - players gave up or there is no remaining movesz
-        return false;
+    pub fn status(_: *Game) void {
+        // deck
+        // discard
+        // suit piles scores
+        // players still in game
     }
-    pub fn nextTurn(_: *Game) void {}
+
+    pub fn finished(self: *Game) bool {
+        return self.deck.empty() and for (self.players) |*p| {
+            if (!p.hand.empty()) {
+                break false;
+            }
+        } else true;
+    }
+
+    pub fn nextTurn(self: *Game) void {
+        for (self.players) |*p| {
+            p.effect(self);
+        }
+        self.lastRound += 1;
+    }
 };
 
 pub fn mkRandom(io: std.Io) std.Random {
