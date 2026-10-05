@@ -43,6 +43,10 @@ const Card = struct {
         return .{ .suit = suit, .value = value };
     }
 
+    pub fn face(self: Card, upDown: bool) Card {
+        return .{ .suit = self.suit, .value = self.value, .faceUp = upDown };
+    }
+
     pub fn effect(self: *Card, score: u8) u8 {
         return switch (self.value) {
             .ACE => score + 1,
@@ -96,7 +100,7 @@ const Deck = struct {
     pub fn draw(self: *Deck) GameError!Card {
         if (self.empty()) {
             std.log.debug("deck is empty", .{});
-            return .DeckEmpty;
+            return GameError.DeckEmpty;
         }
 
         const c = self.cards[self.count - 1];
@@ -121,12 +125,12 @@ const Hand = struct {
     pub fn draw(self: *Hand, deck: *Deck) GameError!void {
         if (self.full()) {
             std.log.debug("Hand is full", .{});
-            return .HandFull;
+            return GameError.HandFull;
         }
 
         if (deck.empty()) {
             std.log.debug("Deck is empty", .{});
-            return .DeckEmpty;
+            return GameError.DeckEmpty;
         }
 
         self.cards[self.count] = try deck.draw();
@@ -136,17 +140,16 @@ const Hand = struct {
     pub fn peek(self: *Hand, index: usize) GameError!Card {
         if (self.empty()) {
             std.log.debug("Hand is empty", .{});
-            return .HandEmpty;
+            return GameError.HandEmpty;
         }
 
         if (self.count <= index) {
             std.log.debug("No card at position {}", .{index});
-            return .NoCardAt;
+            return GameError.NoCardAt;
         }
         return self.cards[index];
     }
 
-    // XXX find a better name
     pub fn place(self: *Hand, index: usize) GameError!Card {
         const c = try self.peek(index);
         var next = index + 1;
@@ -170,10 +173,9 @@ const DiscardPile = struct {
     pub fn place(self: *DiscardPile, card: Card, faceUp: bool) GameError!void {
         if (self.full()) {
             std.log.debug("Discard pile is full", .{});
-            return .DiscardPileFull;
+            return GameError.DiscardPileFull;
         }
-        card.faceUp = faceUp;
-        self.cards[self.count] = card;
+        self.cards[self.count] = card.face(faceUp);
         self.count += 1;
     }
 };
@@ -297,8 +299,10 @@ const Game = struct {
     }
 };
 
+pub fn main(_: std.process.Init) !void {}
+
 /// helper for the random thing
-pub fn mkRandom(io: std.Io) std.Random {
+fn mkRandom(io: std.Io) std.Random {
     var buf: [8]u8 = undefined;
     io.random(&buf);
     const seed = std.mem.readInt(u64, &buf, .big);
@@ -306,7 +310,21 @@ pub fn mkRandom(io: std.Io) std.Random {
     return prng.random();
 }
 
-pub fn main(_: std.process.Init) !void {}
+// player handler which just draw and discards. for testing purposes
+fn drawDiscard(p: *Player, g: *Game) GameError!bool {
+    if (p.hand.full()) {
+        try g.discardPile.place(try p.hand.place(0), true);
+    } else {
+        try p.hand.draw(&g.deck);
+    }
+    return true;
+}
+
+// // this one plays diamonds only
+// fn playDiamonds(p: *Player, g: *Game) GameError!bool {
+//
+//     return true;
+// }
 
 test "check card effects" {
     var card = Card{ .suit = .HEARTS, .value = .ACE };
@@ -326,7 +344,7 @@ test "should play some rounds" {
     var players = [_]Player{
         .{ .name = "Alice" },
         .{ .name = "Bob" },
-        .{ .name = "Charlene" },
+        .{ .name = "Charlene", .handler = &drawDiscard },
     };
 
     var game: Game = .{ .players = &players };
@@ -342,7 +360,7 @@ test "should play some rounds" {
         std.debug.print("Pile {any}, Score {any}, Player {s}\n", .{ p.suit, p.score, p.player });
     }
     for (game.players) |p| {
-        std.debug.print("Player {s}, quit {}\n", .{ p.name, p.quit });
+        std.debug.print("Player {s}, hand {}, quit {}\n", .{ p.name, p.hand.count, p.quit });
     }
     try std.testing.expectEqual(false, game.finished());
     try std.testing.expectEqual(3, game.lastRound);
