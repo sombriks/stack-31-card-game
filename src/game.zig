@@ -59,7 +59,7 @@ const Card = struct {
             .EIGHT => score + 8,
             .NINE => score + 9,
             .TEN => score + 10,
-            .JACK => score - 1,
+            .JACK => if (score == 0) 0 else score - 1,
             .QUEEN => 0,
             .KING => 31,
         };
@@ -167,7 +167,7 @@ const DiscardPile = struct {
     count: usize = 0,
 
     pub fn full(self: *DiscardPile) bool {
-        return self.cards.len > self.count;
+        return self.cards.len == self.count;
     }
 
     pub fn place(self: *DiscardPile, card: Card, faceUp: bool) GameError!void {
@@ -175,6 +175,7 @@ const DiscardPile = struct {
             std.log.debug("Discard pile is full", .{});
             return GameError.DiscardPileFull;
         }
+
         self.cards[self.count] = card.face(faceUp);
         self.count += 1;
     }
@@ -240,6 +241,7 @@ const SuitPile = struct {
 const PileStatus = struct {
     suit: Suit,
     score: u8 = 0,
+    count: usize = 0,
     player: []const u8,
 };
 
@@ -267,6 +269,7 @@ const Game = struct {
         var i: usize = 0;
         while (i < piles.len) : (i += 1) {
             piles[i].suit = self.suitPiles[i].suit;
+            piles[i].count = self.suitPiles[i].count;
             piles[i].score = self.suitPiles[i].score;
             if (self.suitPiles[i].lastPlayer) |p| {
                 piles[i].player = p.name;
@@ -310,7 +313,7 @@ fn mkRandom(io: std.Io) std.Random {
     return prng.random();
 }
 
-// player handler which just draw and discards. for testing purposes
+/// player handler which just draw and discards. for testing purposes
 fn drawDiscard(p: *Player, g: *Game) GameError!bool {
     if (p.hand.full()) {
         try g.discardPile.place(try p.hand.place(0), true);
@@ -320,11 +323,24 @@ fn drawDiscard(p: *Player, g: *Game) GameError!bool {
     return true;
 }
 
-// // this one plays diamonds only
-// fn playDiamonds(p: *Player, g: *Game) GameError!bool {
-//
-//     return true;
-// }
+/// this one plays diamonds only
+fn playDiamonds(p: *Player, g: *Game) GameError!bool {
+    if (p.hand.empty()) {
+        try p.hand.draw(&g.deck);
+    } else {
+        const c = try p.hand.peek(0);
+        if (c.suit == .DIAMONDS) {
+            for (&g.suitPiles) |*pile| {
+                if (pile.suit == .DIAMONDS) {
+                     pile.place(p, 0) catch try g.discardPile.place(try p.hand.place(0), true);
+                }
+            }
+        } else {
+            try g.discardPile.place(try p.hand.place(0), true);
+        }
+    }
+    return true;
+}
 
 test "check card effects" {
     var card = Card{ .suit = .HEARTS, .value = .ACE };
@@ -338,30 +354,41 @@ test "check card effects" {
     try std.testing.expectEqual(30, v);
 }
 
+test "check discard pile" {
+    const card = Card{ .suit = .HEARTS, .value = .ACE };
+    var trash: DiscardPile = .{};
+    try std.testing.expectEqual(false, trash.full());
+    _ = try trash.place(card, false);
+    try std.testing.expectEqual(false, trash.full());
+    try std.testing.expectEqual(1, trash.count);
+
+}
+
 test "should play some rounds" {
     const random = mkRandom(std.testing.io);
 
     var players = [_]Player{
         .{ .name = "Alice" },
-        .{ .name = "Bob" },
+        .{ .name = "Bob", .handler = &playDiamonds },
         .{ .name = "Charlene", .handler = &drawDiscard },
     };
 
     var game: Game = .{ .players = &players };
     game.deck.shuffle(random);
-    game.nextTurn();
-    game.nextTurn();
-    game.nextTurn();
+    const rounds = 20;
+    for(0..rounds) |_| {
+        game.nextTurn();
+    }
     const s = game.status();
     std.debug.print("Round: {}\n", .{s.rounds});
     std.debug.print("Cards remaining: {}\n", .{s.deck});
     std.debug.print("Cards discarded: {}\n", .{s.discarded});
     for (s.piles) |p| {
-        std.debug.print("Pile {any}, Score {any}, Player {s}\n", .{ p.suit, p.score, p.player });
+        std.debug.print("Pile {any}, Count {any}, Score {any}, Player {s}\n", .{ p.suit, p.count, p.score, p.player });
     }
     for (game.players) |p| {
         std.debug.print("Player {s}, hand {}, quit {}\n", .{ p.name, p.hand.count, p.quit });
     }
     try std.testing.expectEqual(false, game.finished());
-    try std.testing.expectEqual(3, game.lastRound);
+    try std.testing.expectEqual(rounds, game.lastRound);
 }
