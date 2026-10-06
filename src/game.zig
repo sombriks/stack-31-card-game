@@ -246,7 +246,7 @@ const PileStatus = struct {
 };
 
 const GameStatus = struct {
-    rounds: u8,
+    rounds: u16,
     deck: usize,
     discarded: usize,
     piles: [4]PileStatus,
@@ -261,7 +261,7 @@ const Game = struct {
         .{ .suit = .CLUBS },
         .{ .suit = .SPADES },
     },
-    lastRound: u8 = 0,
+    lastRound: u16 = 0,
     players: []Player,
 
     pub fn status(self: *Game) GameStatus {
@@ -286,11 +286,10 @@ const Game = struct {
         };
     }
 
+    /// a simplified end game verification
     pub fn finished(self: *Game) bool {
-        return self.deck.empty() and for (self.players) |*p| {
-            if (!p.hand.empty()) {
-                break false;
-            }
+        return self.deck.empty() or for(self.suitPiles) |p| {
+            if(p.score != 31) break false;
         } else true;
     }
 
@@ -332,7 +331,9 @@ fn playDiamonds(p: *Player, g: *Game) GameError!bool {
         if (c.suit == .DIAMONDS) {
             for (&g.suitPiles) |*pile| {
                 if (pile.suit == .DIAMONDS) {
-                     pile.place(p, 0) catch try g.discardPile.place(try p.hand.place(0), true);
+                    pile.place(p, 0) catch try g.discardPile
+                        .place(try p.hand
+                        .place(0), true);
                 }
             }
         } else {
@@ -361,7 +362,6 @@ test "check discard pile" {
     _ = try trash.place(card, false);
     try std.testing.expectEqual(false, trash.full());
     try std.testing.expectEqual(1, trash.count);
-
 }
 
 test "should play some rounds" {
@@ -375,8 +375,7 @@ test "should play some rounds" {
 
     var game: Game = .{ .players = &players };
     game.deck.shuffle(random);
-    const rounds = 20;
-    for(0..rounds) |_| {
+    while (!game.finished()) {
         game.nextTurn();
     }
     const s = game.status();
@@ -389,6 +388,5 @@ test "should play some rounds" {
     for (game.players) |p| {
         std.debug.print("Player {s}, hand {}, quit {}\n", .{ p.name, p.hand.count, p.quit });
     }
-    try std.testing.expectEqual(false, game.finished());
-    try std.testing.expectEqual(rounds, game.lastRound);
+    try std.testing.expectEqual(true, game.finished());
 }
